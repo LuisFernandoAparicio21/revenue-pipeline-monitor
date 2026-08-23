@@ -6,18 +6,31 @@ Este proyecto corre **sin Docker** en desarrollo local.
 
 | Recurso | Situación | Decisión |
 |---------|-----------|----------|
-| RAM | Limitada | Sin Docker, sin contenedores en dev |
+| RAM total | ~8 GB | Sin Docker — evita WSL2 que consume 1-4GB extra |
+| RAM libre | ~600 MB | Todo el stack local usa ~100MB |
 | CPU | Buena | Celery worker sincrónico en dev (task_always_eager) |
-| Disco | Normal | SQLite en dev, PostgreSQL solo en staging/prod |
+| Base de datos | Azure ya pagada | PostgreSQL real en la nube, 0 RAM local |
 
 ## Stack por ambiente
 
 | Componente | Desarrollo (local) | Producción |
 |------------|-------------------|------------|
-| Base de datos | SQLite (archivo local) | PostgreSQL |
-| Redis | fakeredis (en memoria) | Redis real |
+| Base de datos | **Azure PostgreSQL** (cloud, 0 RAM local) | Azure PostgreSQL (mismo servidor) |
+| Redis | fakeredis (en memoria, ~10MB) | Redis real |
 | Celery | `ALWAYS_EAGER=True` (sync) | Workers reales |
 | Servidor | `uvicorn --reload` | Gunicorn + uvicorn workers |
+
+## Por qué Azure PostgreSQL en dev y no SQLite
+
+El servidor `market-db-server-luis` en Azure ya está pagado para otro proyecto.
+Crear una nueva base de datos en él es **gratis** — el costo es por servidor, no por DB.
+Esto nos da PostgreSQL real (no SQLite) con 0 MB de RAM local.
+
+```
+market-db-server-luis.postgres.database.azure.com
+├── market_db          ← proyecto realtime-market-pipeline
+└── revenue_pipeline_db ← este proyecto (creada 2026-08-23)
+```
 | Secrets | `.env` local | Variables de entorno del servidor |
 
 ## Setup inicial (una sola vez)
@@ -68,7 +81,7 @@ Las únicas variables obligatorias para empezar son:
 ```env
 APP_ENV=development
 APP_SECRET_KEY=cualquier_string_de_32_chars
-DATABASE_URL=sqlite+aiosqlite:///./dev.db
+DATABASE_URL=postgresql+asyncpg://adminuser:PASSWORD@market-db-server-luis.postgres.database.azure.com/revenue_pipeline_db?ssl=require
 USE_FAKE_REDIS=true
 CELERY_TASK_ALWAYS_EAGER=true
 
@@ -83,11 +96,11 @@ CELERY_TASK_ALWAYS_EAGER=true
 | Proceso | RAM aprox. |
 |---------|-----------|
 | uvicorn + FastAPI | ~80 MB |
-| SQLite | ~5 MB |
+| Azure PostgreSQL | **0 MB** (está en la nube) |
 | fakeredis (en memoria) | ~10 MB |
-| **Total** | **~100 MB** |
+| **Total local** | **~90 MB** |
 
-Comparado con Docker completo: ~1.5 GB. **15x menos RAM.**
+Comparado con Docker completo (PostgreSQL + Redis + WSL2): ~1.5–2 GB. **20x menos RAM.**
 
 ## Workflow de ramas
 
